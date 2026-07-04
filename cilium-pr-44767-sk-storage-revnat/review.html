@@ -1,0 +1,458 @@
+<title>PR #44767 Review — sk_storage revNAT</title>
+<style>
+  :root {
+    --bg: #f7f8f9;
+    --surface: #ffffff;
+    --surface-2: #eef1f3;
+    --ink: #1b2228;
+    --muted: #5b6770;
+    --line: #dce1e5;
+    --accent: #9a7208;
+    --accent-soft: #f4e9c8;
+    --crit: #b3372e;
+    --crit-soft: #f7e3e1;
+    --warn: #8a6208;
+    --warn-soft: #f5ecd2;
+    --ok: #2e7d4f;
+    --ok-soft: #e0efe6;
+    --neutral-chip: #e7eaed;
+    --code-bg: #f0f2f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181c;
+      --surface: #1c2228;
+      --surface-2: #232b32;
+      --ink: #e4e9ed;
+      --muted: #93a0ab;
+      --line: #2c353d;
+      --accent: #e0b449;
+      --accent-soft: #3a3114;
+      --crit: #e5776c;
+      --crit-soft: #46231f;
+      --warn: #d9a93e;
+      --warn-soft: #3d3116;
+      --ok: #6bbf8a;
+      --ok-soft: #1d3527;
+      --neutral-chip: #2a333b;
+      --code-bg: #10141a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14181c; --surface: #1c2228; --surface-2: #232b32; --ink: #e4e9ed;
+    --muted: #93a0ab; --line: #2c353d; --accent: #e0b449; --accent-soft: #3a3114;
+    --crit: #e5776c; --crit-soft: #46231f; --warn: #d9a93e; --warn-soft: #3d3116;
+    --ok: #6bbf8a; --ok-soft: #1d3527; --neutral-chip: #2a333b; --code-bg: #10141a;
+  }
+  :root[data-theme="light"] {
+    --bg: #f7f8f9; --surface: #ffffff; --surface-2: #eef1f3; --ink: #1b2228;
+    --muted: #5b6770; --line: #dce1e5; --accent: #9a7208; --accent-soft: #f4e9c8;
+    --crit: #b3372e; --crit-soft: #f7e3e1; --warn: #8a6208; --warn-soft: #f5ecd2;
+    --ok: #2e7d4f; --ok-soft: #e0efe6; --neutral-chip: #e7eaed; --code-bg: #f0f2f4;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 55rem; margin: 0 auto; padding: 3rem 1.5rem 5rem; }
+  code, pre, .mono {
+    font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.86em;
+  }
+  code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0.9rem 1.1rem;
+    overflow-x: auto;
+    line-height: 1.55;
+  }
+  pre code { background: none; padding: 0; }
+
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 0.75rem;
+  }
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    letter-spacing: -0.015em;
+    margin: 0 0 0.5rem;
+    text-wrap: balance;
+  }
+  .meta {
+    display: flex; flex-wrap: wrap; gap: 0.4rem 1.4rem;
+    color: var(--muted); font-size: 0.85rem; margin: 0.75rem 0 0;
+  }
+  .meta .mono { font-size: 0.82rem; }
+
+  h2 {
+    font-size: 1.25rem;
+    letter-spacing: -0.01em;
+    margin: 3rem 0 0.9rem;
+    padding-top: 1.6rem;
+    border-top: 1px solid var(--line);
+    text-wrap: balance;
+  }
+  h2 .secno { color: var(--accent); font-family: ui-monospace, Menlo, monospace; font-size: 0.85em; margin-right: 0.5em; }
+  h3 { font-size: 1.02rem; margin: 1.9rem 0 0.4rem; }
+  p, li { max-width: 68ch; }
+  ul, ol { padding-left: 1.3rem; }
+  li { margin: 0.3rem 0; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  strong { font-weight: 650; }
+
+  .chip {
+    display: inline-block;
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.14rem 0.55rem;
+    border-radius: 999px;
+    vertical-align: 0.12em;
+    white-space: nowrap;
+  }
+  .chip-crit { background: var(--crit-soft); color: var(--crit); }
+  .chip-warn { background: var(--warn-soft); color: var(--warn); }
+  .chip-ok { background: var(--ok-soft); color: var(--ok); }
+  .chip-mut { background: var(--neutral-chip); color: var(--muted); }
+
+  .verdict {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 1.1rem 1.4rem;
+    margin: 1.8rem 0 0;
+  }
+  .verdict p { margin: 0.4rem 0; }
+
+  .finding {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 1.1rem 1.4rem 1.2rem;
+    margin: 1.1rem 0;
+  }
+  .finding h3 { margin: 0 0 0.15rem; }
+  .finding .loc {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin: 0 0 0.65rem;
+  }
+  .finding p { margin: 0.55rem 0; }
+  .fix { color: var(--muted); font-size: 0.92rem; }
+  .fix strong { color: var(--ink); }
+
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+  th, td { text-align: left; padding: 0.6rem 0.85rem; vertical-align: top; border-top: 1px solid var(--line); }
+  thead th {
+    border-top: none;
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted); background: var(--surface-2);
+  }
+  td.num { font-family: ui-monospace, Menlo, monospace; color: var(--muted); font-size: 0.8rem; }
+  td .chip { vertical-align: baseline; }
+  tbody tr td:nth-child(2) { min-width: 15rem; }
+  tbody tr td:nth-child(4) { min-width: 22rem; }
+
+  .keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: 0.9rem; margin: 1rem 0; }
+  .keys figure { margin: 0; }
+  .keys figcaption {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 0.4rem;
+  }
+  .footer { margin-top: 3.5rem; padding-top: 1.2rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.8rem; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Code review · cilium/cilium · PR #44767</p>
+    <h1>BPF_MAP_TYPE_SK_STORAGE for IPv4/IPv6 socket revNAT</h1>
+    <div class="meta">
+      <span>Author <strong>venk8</strong></span>
+      <span class="mono">lbfix → main</span>
+      <span class="mono">35 files · +533 / −178</span>
+      <span>Reviewed 2026-07-04</span>
+      <span class="chip chip-warn">Verdict: needs changes</span>
+    </div>
+  </header>
+
+  <div class="verdict">
+    <p><strong>TL;DR.</strong> The direction is right — per-socket storage is the natural home for connected-socket revNAT state, and the dual-lookup fallback gives a safe rollback story. But the sk_storage entry drops the peer binding that the old LRU key provided implicitly, and five confirmed issues (findings 1–5) all trace back to that one gap. Two viable fixes for finding 1 are laid out in §6 — a self-validating entry (store the backend tuple) or a pair of lifecycle guards (connected-state gate + delete on non-service connect); the PR currently does neither.</p>
+  </div>
+
+  <h2 id="gap"><span class="secno">1</span>The core design gap: entries outlive the association they describe</h2>
+
+  <p>The legacy LRU map keys each entry by <em>who the translation is about</em>. The reverse path builds the lookup key from the current packet's peer, so a hit simultaneously proves the socket was LB'd <em>and</em> that the stored translation applies to this exact peer. Stale entries are harmless — they can only be found by the backend they describe.</p>
+
+  <div class="keys">
+    <figure>
+      <figcaption>Legacy LRU map</figcaption>
+      <pre><code>(cookie, backend addr, backend port)
+        → (VIP, port, rev_nat_index)</code></pre>
+    </figure>
+    <figure>
+      <figcaption>New sk_storage entry</figcaption>
+      <pre><code>socket
+        → (VIP, port, rev_nat_index)</code></pre>
+    </figure>
+  </div>
+
+  <p>The sk_storage entry is keyed by the socket alone; the backend appears nowhere in it. A hit now only proves "this socket was translated toward <em>some</em> backend at <em>some</em> point." The follow-up check is self-referential — it looks the service up by the stored value and confirms the stored frontend still exists, never that the stored translation matches the packet in hand.</p>
+
+  <p><strong>And the entry's lifetime is the socket's, not the connection's.</strong> An sk_storage entry is freed only when the kernel destroys the socket itself. One socket can host many successive associations — <code>connect()</code> to service A, <code>AF_UNSPEC</code> disconnect, <code>connect()</code> to B, unconnected <code>sendto()</code> — all on the same fd. Nothing clears the entry between them: the forward path returns <code>-ENXIO</code> before reaching <code>sock4_update_revnat</code> when the new destination isn't a service, and <code>sock4_delete_revnat</code> (invoked from <code>cgroup/sock_release</code>, i.e. socket close — where the kernel frees sk_storage anyway) touches only the LRU map. The entry's validity window (one service association) is shorter than its storage window (the socket's whole life). The old design had the same storage lifetime but was immune, because an expired association could never be <em>found</em> by a different peer.</p>
+
+  <h2 id="findings"><span class="secno">2</span>Confirmed correctness findings</h2>
+
+  <div class="finding">
+    <h3>F1 · Stale sk_storage entry rewrites the peer address <span class="chip chip-crit">Confirmed · critical</span></h3>
+    <p class="loc">bpf/bpf_sock.c:626 (__sock4_xlate_rev; v6 twin at ~1271)</p>
+    <p>The sk_storage entry is consulted <em>before</em> the destination-keyed LRU lookup, is never validated against the current peer, and is never cleared on disconnect/reconnect. Scenario: a UDP socket <code>connect()</code>s to service A, disconnects (<code>AF_UNSPEC</code>), reconnects to a plain non-service address X. <code>getpeername()</code>/<code>recvmsg()</code> finds A's entry, service A still exists with a matching <code>rev_nat_index</code>, so the peer is rewritten to A's VIP even though the socket talks to X. <code>key.address</code> (X) is computed but never compared with <code>val-&gt;address</code>.</p>
+    <p class="fix"><strong>Fix:</strong> either make the entry self-validating (store the backend tuple, compare against the current peer) or add both lifecycle guards (connected-state gate on the read + delete on non-service connect) — see §6. The PR currently does neither.</p>
+  </div>
+
+  <div class="finding">
+    <h3>F2 · Termination matcher destroys sockets Cilium never load-balanced <span class="chip chip-crit">Confirmed · critical</span></h3>
+    <p class="loc">bpf/bpf_sock_term.c:70 (matches_v4 / matches_v6)</p>
+    <p><code>matches_v4/v6</code> dropped the "cookie exists in the revnat map" guard and match purely on <code>skc_daddr</code>/<code>skc_dport</code> == deleted-backend addr:port. A pod connected <em>directly</em> to the backend IP:port (never via a service VIP) now gets destroyed — and the sweep also fires when a backend merely goes non-alive while still serving direct traffic. The netlink fallback in the same PR still enforces the guard (<code>checkSockInRevNat</code>), so the two destroyers disagree, and the documented contract in <code>termination.go:192</code> ("also tracked in the sock rev nat map") is violated.</p>
+    <p class="fix"><strong>Fix:</strong> augment rather than replace — address match <em>and</em> cookie-in-map (concrete diff in §7). That keeps the reconnect fix your new test covers while preserving the managed-socket guard.</p>
+  </div>
+
+  <div class="finding">
+    <h3>F3 · Unconnected UDP sockets are never terminated anymore <span class="chip chip-crit">Confirmed · critical</span></h3>
+    <p class="loc">bpf/bpf_sock_term.c:70; test coverage deleted in bpf/tests/destroy_sock_socket_lb.c</p>
+    <p>An unconnected socket that <code>sendto()</code>s a ClusterIP still gets an LRU revnat entry (the sendmsg path writes it), and the old cookie matcher destroyed it when its backend was deleted. Its <code>skc_daddr</code> is 0, so the new matcher can never match, and the netlink fallback can't cover it either (socket-diag destination is empty for unconnected sockets). The rewritten BPF test deleted exactly the assertions that would have caught this.</p>
+    <p class="fix"><strong>Fix:</strong> same as F2 — the combined matcher in §7 covers the <code>skc_daddr == 0</code> case via the map lookup; restore the deleted test assertions.</p>
+  </div>
+
+  <div class="finding">
+    <h3>F4 · LRU map halved and capped on a false premise <span class="chip chip-warn">Confirmed · high</span></h3>
+    <p class="loc">pkg/loadbalancer/config.go:379 · pkg/option/config.go:517 · bpf/node_config.h · pkg/loadbalancer/maps/types.go:982</p>
+    <p>The new comment says "connected UDP sockets are not tracked in the SockRevNAT table", but <code>sock{4,6}_update_revnat</code> still writes the LRU map unconditionally — and must, because the netlink destroyer's <code>ExistsSockRevNat</code> reads it. So load on the map is unchanged while capacity is halved (262144 → 131072) <em>and</em> <code>min(getEntries(…), default)</code> removes upward dynamic scaling that previously reached <code>LimitTableMax</code> (16M) on large nodes. Result: more LRU eviction → reverse-translation misses and unreliable termination checks. <code>SockRevNat4MapSize = 256 * 1024</code> in types.go is now inconsistent with everything else.</p>
+    <p class="fix"><strong>Fix:</strong> keep sizing unchanged until the LRU write is actually gated for connected sockets; align the constants; correct the comment. This matches jrife's versioning plan on the thread, which keeps the dual-write in version N and defers scaling down "once the LRU hash is only used for non-connected UDP" — i.e. N+1, not this PR.</p>
+  </div>
+
+  <div class="finding">
+    <h3>F5 · Netlink destroyer is blind to sockets that survive only via sk_storage <span class="chip chip-warn">Confirmed · high (netlink-fallback kernels)</span></h3>
+    <p class="loc">pkg/loadbalancer/reconciler/termination.go:240 (checkSockInRevNat → ExistsSockRevNat)</p>
+    <p>Pre-PR, an LRU-evicted socket was broken anyway, so skipping it was moot. Post-PR, a connected socket keeps working via sk_storage after its LRU entry is evicted (made likelier by F4), but <code>ExistsSockRevNat</code> reads only the LRU maps — sk_storage can't be queried by cookie from userspace. On kernels without <code>bpf_sock_destroy</code>, the destroyer skips the socket and it keeps talking to a deleted backend. A new failure mode created by moving the source of truth without moving the readers.</p>
+  </div>
+
+  <h2 id="cleanup"><span class="secno">3</span>Cleanup findings</h2>
+
+  <div class="finding">
+    <h3>F6 · v4/v6 copy-paste; field-by-field copy instead of struct assignment <span class="chip chip-mut">Cleanup</span></h3>
+    <p class="loc">bpf/bpf_sock.c:157 and ~701</p>
+    <p>The <code>sk_storage_get(F_CREATE)</code> + <code>memcmp</code> + three-field copy block appears verbatim in both <code>sock4_update_revnat</code> and <code>sock6_update_revnat</code> (the lookup/delete pairs repeat in both <code>xlate_rev</code>s too). Factor a shared <code>__always_inline</code> helper and replace the field copies with <code>*sk_val = val;</code> so a future struct field can't be silently missed. The memcmp-before-write itself is fine — it's write avoidance, and the copy correctly never runs on the F_CREATE path.</p>
+  </div>
+
+  <div class="finding">
+    <h3>F7 · Test shims duplicate registry.Cell; dependency not bundled <span class="chip chip-mut">Cleanup</span></h3>
+    <p class="loc">pkg/maps/registry/test_helper.go:10; 8 test files + repl/main.go</p>
+    <p><code>NewTestRegistry</code>/<code>StartTest</code> re-implement what <code>registry.Cell</code> already provides, and every other touched test just adds the cell. The scatter exists because lbmaps gained a hard <code>*registry.MapRegistry</code> dependency without bundling it. Bundle <code>registry.Cell</code> into the LB maps module (or a shared test composition) and drop the shims.</p>
+  </div>
+
+  <div class="finding">
+    <h3>F8 · Reformat-only hunks unrelated to the feature <span class="chip chip-mut">Nit</span></h3>
+    <p class="loc">bpf/bpf_sock.c:191 (sock{4,6}_delete_revnat re-indent) · pkg/loadbalancer/repl/main.go:83 · bpf/tests/destroy_sock_socket_lb.c (blank line)</p>
+    <p>Whitespace and blank-line churn pollutes blame and review surface; move to a separate cleanup commit or drop.</p>
+  </div>
+
+  <h2 id="triage"><span class="secno">4</span>Triage of the external review's comments</h2>
+  <p>Point-by-point validity of the other review that was shared, checked against the PR head and kernel/repo facts. Its two most consequential calls — the "critical" kernel-gating blocker and the sizing justification in its "what's good" table — don't hold up; several of its minor points are valid and are folded into the findings above.</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>#</th><th>Claim (their severity)</th><th>Verdict</th><th>Assessment</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="num">1</td>
+          <td>Missing <code>HAVE_SK_STORAGE</code> guard breaks kernels &lt; 5.2 <em>(Critical)</em></td>
+          <td><span class="chip chip-warn">Partial</span></td>
+          <td>The description/implementation mismatch is real — no probe or macro exists anywhere in the tree. But the load-failure claim fails on versions: Cilium's documented minimum is kernel ≥ 5.10, and <code>BPF_MAP_TYPE_SK_STORAGE</code> (v5.2) plus the cgroup/sock_addr helper protos (v5.3) predate it. Both jrife ("no probe is necessary") and ti-mo ("Cilium 1.19 already targets kernel 5.10… the <code>HAVE_SK_STORAGE</code> macro also won't fly due to #27446") said so on the thread — the probe was deliberately removed. Not a blocker; fix the PR description instead.</td>
+        </tr>
+        <tr>
+          <td class="num">2</td>
+          <td><code>F_CREATE</code> template + redundant memcmp/copy <em>(Critical)</em></td>
+          <td><span class="chip chip-ok">Valid (minor)</span></td>
+          <td>Correctly concludes "not a bug." Folded into F6 — the actionable part is <code>*sk_val = val;</code> and a shared v4/v6 helper. Misfiled as critical.</td>
+        </tr>
+        <tr>
+          <td class="num">3</td>
+          <td><code>delete_revnat</code> doesn't clean sk_storage <em>(Critical)</em></td>
+          <td><span class="chip chip-warn">Partial</span></td>
+          <td><code>sock*_delete_revnat</code> runs from <code>cgroup/sock_release</code> — socket close — where the kernel frees sk_storage anyway, so there is no leak and no "socket reuse" hazard (a new socket gets fresh storage). Adding <code>sk_storage_delete</code> there is harmless symmetry but does <em>not</em> fix the real staleness bug, which is the reconnect path (F1) that never passes through release.</td>
+        </tr>
+        <tr>
+          <td class="num">4</td>
+          <td><code>sock_common</code> CO-RE stub is fragile / BTF may be absent <em>(Important)</em></td>
+          <td><span class="chip chip-warn">Partial</span></td>
+          <td>BTF is effectively guaranteed here: <code>bpf_sock_term</code> already requires the <code>bpf_sock_destroy</code> kfunc (kernel ≥ 6.4), which implies kernel BTF. The <code>in6_addr_stub</code> name mismatch is a non-issue — CO-RE field relocations resolve the <code>skc_v6_daddr</code> offset by access path, and <code>memcmp</code> never touches inner fields. Worth a code comment; not a blocker.</td>
+        </tr>
+        <tr>
+          <td class="num">5</td>
+          <td><code>unsafe</code> in test; use <code>unix.Connect</code> instead <em>(Important)</em></td>
+          <td><span class="chip chip-warn">Partial</span></td>
+          <td>Fair to want the raw syscall gone, but the suggestion doesn't work: <code>x/sys/unix</code> has no <code>Sockaddr</code> for <code>AF_UNSPEC</code>, which is why the raw <code>SYS_CONNECT</code> is there. Keep it, add a one-line comment saying so.</td>
+        </tr>
+        <tr>
+          <td class="num">6</td>
+          <td>Halved default shifts memory budget to CT/NAT/Neigh maps <em>(Important)</em></td>
+          <td><span class="chip chip-ok">Valid</span></td>
+          <td>Good catch on the shared-budget side effect (visible in the config_test.go deltas) and on needing a release note. But it understates the problem: the halving's premise is false (F4) — the LRU map's load is unchanged because the dual-write remains.</td>
+        </tr>
+        <tr>
+          <td class="num">7</td>
+          <td><code>NewSockRevNat*StMap</code> panics on error <em>(Important)</em></td>
+          <td><span class="chip chip-ok">Valid (minor)</span></td>
+          <td>Hive style is to propagate errors. The panic exists because the <code>mapDesc</code> ctor signature can't return one — which is itself a sign the registry-backed maps are shoehorned into that mechanism (the adapter closure also discards its <code>maxEntries</code> argument). Extending <code>mapDesc</code> fixes both.</td>
+        </tr>
+        <tr>
+          <td class="num">8</td>
+          <td>Whitespace changes mixed with functional changes <em>(Nit)</em></td>
+          <td><span class="chip chip-ok">Valid</span></td>
+          <td>Agreed — same as F8.</td>
+        </tr>
+        <tr>
+          <td class="num">9</td>
+          <td>Blank line removed in <code>mock_bpf_sock_destroy</code> <em>(Nit)</em></td>
+          <td><span class="chip chip-ok">Valid</span></td>
+          <td>Trivial; folded into F8.</td>
+        </tr>
+        <tr>
+          <td class="num">10</td>
+          <td>128-byte test padding is a verifier stack-bounds workaround, needs a comment <em>(Nit)</em></td>
+          <td><span class="chip chip-warn">Partial</span></td>
+          <td>Right that it needs a comment, wrong about why. The padding exists because <code>preserve_access_index</code> relocates field offsets against the <em>kernel's</em> <code>sock_common</code> (~136 bytes), which is larger than the local stub — both the test's writes and the program's reads land beyond the stub, and the padding provides that room. Document that, and note it silently depends on the kernel struct staying under ~176 bytes.</td>
+        </tr>
+        <tr>
+          <td class="num">11</td>
+          <td>Missing <code>Signed-off-by</code>; release-note label <em>(Process)</em></td>
+          <td><span class="chip chip-ok">Valid</span></td>
+          <td>Confirmed: the bot flagged commits <code>1b93793</code> and <code>85c372c</code>, and <code>dont-merge/needs-release-note-label</code> is still on the PR. Must be resolved regardless.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Corrections to its "what's good" table</h3>
+  <ul>
+    <li><strong>"Map size reduction is justified since connected sockets now use sk_storage"</strong> — incorrect; the LRU write is unconditional and load-bearing (F4).</li>
+    <li><strong>"Socket destroyer eliminates false positives from stale map entries"</strong> — it fixes the reconnect false positive but introduces both an over-match (F2) and an under-match (F3); the guard should have been augmented, not replaced.</li>
+    <li>It missed the most severe issues entirely: F1, F2, F3, and F5.</li>
+  </ul>
+
+  <h2 id="refuted"><span class="secno">5</span>Refuted claims — don't chase these</h2>
+  <ul>
+    <li><strong>Kernel gating as a load blocker</strong> — sk_storage (v5.2) and its sock_addr helpers (v5.3) predate Cilium's 5.10 minimum. The only action is updating the PR description, which promises probing that doesn't exist.</li>
+    <li><strong>Dual-write as dead work</strong> — the connect-time LRU write is required by the netlink destroyer's <code>ExistsSockRevNat</code>; skipping it would break termination. (Which is exactly why the sizing rationale in F4 fails.)</li>
+    <li><strong><code>MapReplacements</code> mutation in <code>removeUnusedMaps</code></strong> — it only prunes the per-call embedded copy that <code>populateMapReplacements</code> rebuilds from the caller's intact top-level map on every load; no caller-visible side effect.</li>
+  </ul>
+
+  <h2 id="fix"><span class="secno">6</span>Fixing F1 — with or without storing the backend address</h2>
+  <p>Context from the PR thread: jrife originally proposed a richer <code>ipv4_sk_meta</code> value carrying <code>backend_address/backend_port</code>, then withdrew it — <em>"we can save memory and not have to store the backend address in the sock metadata after all."</em> That withdrawal was specifically about <code>bpf_sock_term</code>, where it is correct: a connected socket's own <code>skc_daddr/skc_dport</code> already names its backend, so the destroyer can read it from the socket. It was never established for the reverse-translation path, and it doesn't transfer there — that path asks the opposite question ("does the stored entry apply to this peer?"), and the entry carries only the frontend VIP, so there is nothing to compare the peer against. Two ways to close F1:</p>
+
+  <h3>Option A — self-validating entry (store the backend tuple)</h3>
+  <pre><code>struct ipv4_revnat_sk_entry {
+        __be32 backend_addr;   /* who this translation is about   */
+        __be16 backend_port;
+        __be32 address;        /* frontend VIP                    */
+        __be16 port;
+        __u16  rev_nat_index;
+};</code></pre>
+  <p>The reverse path checks <code>val-&gt;backend == current peer</code> before rewriting — restoring exactly the guarantee the old LRU key encoded, for ~6 extra bytes per socket. Stale state becomes <em>harmless</em> rather than needing to be <em>impossible</em>: immune to missed lifecycle paths, kernel sockets that bypass cgroup hooks, and state divergence across agent upgrades. It also lets the termination iterator do <code>sk_storage_get(sk)</code> + backend compare, fixing F2's over-match while keeping the reconnect fix.</p>
+
+  <h3>Option B — lifecycle guards (no backend stored)</h3>
+  <p>Both guards are required together:</p>
+  <ul>
+    <li><strong>Gate the sk_storage read on the socket being connected</strong> (<code>ctx-&gt;sk-&gt;state == BPF_TCP_ESTABLISHED</code>; connected UDP also reports ESTABLISHED). Unconnected sockets fall through to the peer-keyed LRU lookup, which is correct for them — this also matches jrife's N+1 plan where the LRU map serves only non-connected UDP.</li>
+    <li><strong>Delete the entry on connect-to-non-service</strong>: in the connect path, when the forward service lookup misses, <code>sk_storage_delete</code> before the <code>-ENXIO</code> return. Every <code>connect()</code> passes the cgroup hook, so a reconnect to a plain address clears the stale entry.</li>
+  </ul>
+  <p>This saves the extra bytes but is the enumeration approach: correctness depends on having covered every path where an association ends, and jrife has already flagged kernel-socket cgroup-hook weirdness (#21541) and upgrade-divergence as open questions. Option A is the robust choice; Option B is acceptable if the memory argument wins. <strong>The PR as written does neither — the entry is trusted unconditionally, which is F1.</strong></p>
+
+  <h2 id="matcher"><span class="secno">7</span>Fixing F2/F3 — restore the guard, keep the reconnect fix</h2>
+
+  <p>First, provenance, because it decides how this should land. The matcher rewrite mixes three different things:</p>
+  <ul>
+    <li><strong>A real pre-existing bug on main, genuinely fixed here:</strong> the old cookie-based matcher destroys a socket that reconnected away from the deleted backend, because its stale LRU entry only dies at socket close. <code>TestPrivilegedSocketDestroyersReconnected</code> is the first test to pin this down.</li>
+    <li><strong>Two new regressions (F2, F3) introduced by the rewrite — not by socket storage:</strong> the new matcher never touches sk_storage; it replaced the revnat-membership guard with an address check instead of combining them. On main, a direct non-LB connection is spared and an unconnected <code>sendto()</code> socket is destroyed; this PR flips both.</li>
+    <li><strong>F1/F5 are the actual sk_storage side effects</strong> — they have no counterpart on main.</li>
+  </ul>
+  <p>Because the reconnect fix is independent of the sk_storage feature and is a stable-branch backport candidate, it is worth its own commit (arguably its own PR), with the sk_storage work rebased on top.</p>
+
+  <h3>The combined matcher</h3>
+  <pre><code>static __always_inline bool matches_v4(void *sk)
+{
+	struct sock_common *skc = sk;
+	struct ipv4_revnat_tuple key = {};
+	bool addr_match, unconnected;
+
+	if (!skc)
+		return false;
+
+	addr_match = skc-&gt;skc_daddr == cilium_sock_term_filter.address.addr4 &amp;&amp;
+		     skc-&gt;skc_dport == bpf_htons(cilium_sock_term_filter.port);
+	unconnected = !skc-&gt;skc_daddr;
+
+	/* Connected to something other than the deleted backend: spare it,
+	 * even if a stale revnat entry for this cookie still lingers.
+	 */
+	if (!addr_match &amp;&amp; !unconnected)
+		return false;
+
+	/* Only destroy sockets that socket-LB actually translated toward
+	 * this backend. Also covers unconnected sendmsg sockets, whose
+	 * skc_daddr is 0 but whose association is recorded in the map.
+	 */
+	key.address = cilium_sock_term_filter.address.addr4;
+	key.port    = bpf_htons(cilium_sock_term_filter.port);
+	key.cookie  = get_socket_cookie(sk);
+
+	return map_lookup_elem(&amp;cilium_lb4_reverse_sk, &amp;key);
+}</code></pre>
+  <p><code>matches_v6</code> mirrors this with the <code>memcmp</code> on <code>skc_v6_daddr</code> and a zeroed <code>union v6addr</code> for the unconnected test. The map key is the unchanged <code>ipv4_revnat_tuple</code> — (socket cookie, backend address, backend port) — which the legacy write in <code>sock4_update_revnat</code> still populates for all paths, so the guard works today on both branches.</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Socket</th><th>Address gate</th><th>Map guard</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>Connected via service to the deleted backend</td><td>match</td><td>entry exists</td><td>destroyed ✓</td></tr>
+        <tr><td>Reconnected elsewhere, stale entry lingers</td><td>no match, not unconnected</td><td>—</td><td>spared ✓ (the pre-existing bug, fixed)</td></tr>
+        <tr><td>Direct connection, never LB'd (F2)</td><td>match</td><td>no entry</td><td>spared ✓</td></tr>
+        <tr><td>Unconnected, <code>sendto()</code> via service (F3)</td><td><code>daddr == 0</code></td><td>entry exists</td><td>destroyed ✓ (coverage restored)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Knock-on work in the same commit: restore the <code>insert4</code>/<code>insert6</code>/<code>setup()</code> scaffolding in <code>bpf/tests/destroy_sock_socket_lb.c</code> and assert all four rows above (the spared-when-address-only case never had a test, on main either); regenerate <code>pkg/datapath/bpf/sockterm_bpf{el,eb}.{go,o}</code> since the sockterm object ships precompiled. Note the restored guard makes termination depend on the LRU entry existing at sweep time (F5's territory) — one more reason the F4 map shrink must not land in this PR. In jrife's N+1 world the map guard here becomes <code>bpf_sk_storage_get()</code> + backend compare, which requires the backend in the value — i.e. §6 Option A sets up the N+1 termination story and Option B doesn't.</p>
+
+  <h2 id="checklist"><span class="secno">8</span>Pre-merge checklist</h2>
+  <ol>
+    <li>Close F1 via §6 Option A (backend tuple in the value, validated against the current peer) or Option B (connected-state gate + delete on non-service connect).</li>
+    <li>Restore the managed-socket guard in <code>matches_v4/v6</code> per §7, re-cover unconnected UDP in the BPF test, and consider splitting the reconnect fix into its own backportable commit (F2, F3).</li>
+    <li>Revert or re-justify the LRU sizing changes; fix the false comment and the stale <code>SockRevNat4MapSize</code> constants (F4).</li>
+    <li>Decide the story for netlink-fallback kernels whose sockets survive via sk_storage (F5) — the backend-tuple entry plus keeping the LRU write makes this tractable.</li>
+    <li>Cleanups: shared v4/v6 helper + struct assignment (F6); bundle <code>registry.Cell</code> and drop the test shims (F7); split out whitespace churn (F8); comment the CO-RE stub and the 128-byte test padding; propagate errors from the registry map constructors.</li>
+    <li>Process: sign off all commits, add the release-note blurb, and update the PR description to drop the nonexistent probing/<code>HAVE_SK_STORAGE</code> claims.</li>
+  </ol>
+
+  <p class="footer">Review of cilium/cilium PR #44767 (head <span class="mono">8f64a80</span>) · 8 finder angles, 8 verification passes (5 confirmed, 3 refuted) · includes triage of an external review's 11 comments.</p>
+</div>
