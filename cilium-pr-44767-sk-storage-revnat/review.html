@@ -189,7 +189,7 @@
       <span class="mono">lbfix → main</span>
       <span class="mono">35 files · +533 / −178</span>
       <span>Reviewed 2026-07-04</span>
-      <span class="chip chip-warn">Verdict: needs changes</span>
+      <span class="chip chip-ok">Verdict: approved with nits (head db9a6e8)</span>
     </div>
   </header>
 
@@ -522,5 +522,9 @@ go generate ./pkg/datapath/bpf     # bpf2go → sockterm_bpf{el,eb}.{go,o} + pro
     <li>Align-checker entries not gofmt-aligned; carried: F5, F7, F8, sign-offs, release-note label, PR description still promising kernel probing.</li>
   </ul>
 
-  <p class="footer">Review of cilium/cilium PR #44767 · v1 head <span class="mono">8f64a80</span> (8 finder angles, 8 verification passes: 5 confirmed, 3 refuted; external-review triage) · re-reviews: <span class="mono">b9a85da</span>, <span class="mono">e8d0f18</span>, <span class="mono">19c6b8d</span>.</p>
+  <h2 id="rereview3"><span class="secno">11</span>Re-review #3 — heads <span class="mono">22e0055</span> / <span class="mono">4a4053f</span> / <span class="mono">db9a6e8</span> <span class="chip chip-ok">Approved with nits</span></h2>
+  <p><strong>No functional findings remain.</strong> <span class="mono">22e0055</span> fixed the <code>if (st)</code> fall-through and added the address-gate test cases (§7's table fully asserted). <span class="mono">4a4053f</span> closed <strong>B1</strong> (specs now 16/40 B with <code>ipv{4,6}_sk_storage_entry</code>; <code>mapkv.btf</code> contains both types) and <strong>B2</strong> (sockterm objects genuinely rebuilt, 9.6→15.5 KB, containing the st maps, entry types, and the new matcher's BTF line info) — verified by content, not just by diff. <span class="mono">db9a6e8</span> reverted <code>node_config.h</code> to 262144 with the codegen re-run in sync.</p>
+  <p>Remaining nits: the reverted <code>#define</code> lines use tabs vs main's single space (whitespace-only diff in <code>node_config.h</code>); F8 whitespace hunks; optional F7; process items (sign-offs, release-note label, PR description rewrite to the final design). Final validation: <code>make -C bpf tests</code> and <code>make tests-privileged</code> — the reconnect test against the regenerated object is the end-to-end proof the whole arc ships.</p>
+
+  <p class="footer">Review of cilium/cilium PR #44767 · v1 head <span class="mono">8f64a80</span> (8 finder angles, 8 verification passes: 5 confirmed, 3 refuted; external-review triage) · re-reviews: <span class="mono">b9a85da</span>, <span class="mono">e8d0f18</span>, <span class="mono">19c6b8d</span>, <span class="mono">22e0055</span>, <span class="mono">4a4053f</span>, <span class="mono">db9a6e8</span> — resolved: approved with nits.</p>
 </div>

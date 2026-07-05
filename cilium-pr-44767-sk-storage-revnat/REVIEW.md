@@ -327,3 +327,40 @@ Commit whatever the generators produce. Then `make -C bpf tests` and `make tests
 - **`if (st)` early-return** in `matches_v4/v6` skips the cookie fallback when the st entry exists but mismatches — an unconnected socket with a stale st entry plus a valid LRU entry for the deleted backend is wrongly spared. Make it `if (st && match) return true;` and fall through.
 - Two new align-checker entries aren't gofmt-aligned with the surrounding table.
 - Carried: F5 (low priority post-F4-revert), F7, F8, sign-offs, release-note label, PR description still promising kernel probing.
+
+---
+
+# Re-review #3 — heads `22e0055`, `4a4053f`, `db9a6e8` (2026-07-05)
+
+**Verdict: APPROVE WITH NITS — no functional findings remain.**
+
+## `22e0055`
+
+- **`if (st)` early-return fixed** — both matchers now `if (st && match) return true;` and fall through to the cookie lookup (stale mismatched st entry + valid LRU entry → destroyed, as intended).
+- **Address-gate tests added** for both families: connected + matching destination + st → destroyed; connected + mismatched destination → spared (the reconnect scenario, now pinned by a BPF unit test). §7's case table is fully asserted.
+- Align-checker gofmt fixed.
+
+## `4a4053f` — B1 and B2 closed (verified by content, not just by diff)
+
+- **B1:** `maps_generated.go` now `ValueSize: 16 / "ipv4_sk_storage_entry"` and `40 / "ipv6_sk_storage_entry"`; regenerated `mapkv.btf` contains both types. Registry-pinned maps and datapath structs agree — the load-failure scenario is gone.
+- **B2:** sockterm objects genuinely rebuilt (9.6 KB → 15.5 KB); the new `.o` contains `cilium_lb4/6_reverse_sk_st`, both entry types, and BTF line info for the new matcher. The shipped destroyer now runs the complete address-gate + st + cookie-fallback matcher. Probes objects returned to baseline size (clean regen).
+
+## `db9a6e8`
+
+- `node_config.h` reverted to 262144 with the maps codegen re-run in the same push (`maps_generated.go` LRU defaults back to 262144; sockterm objects rebuilt in sync). Last functional leftover closed.
+
+## Remaining nits (non-blocking)
+
+1. The reverted `#define LB{4,6}_REVERSE_NAT_SK_MAP_SIZE` lines use tabs where main uses a single space — `node_config.h` still shows as a whitespace-only diff; make the lines byte-identical to main.
+2. **F8** — whitespace-only hunks remain (`sock{4,6}_delete_revnat` re-indent in `bpf_sock.c`, stray blank line in `repl/main.go`); split out or drop.
+3. **F7** (optional) — `NewTestRegistry`/`StartTest` shims vs. bundling `registry.Cell`.
+4. **Process** — sign-offs on all commits; `release-note` blurb (`dont-merge/needs-release-note-label` still set); rewrite the PR description to match the final design (backend-tuple sk_storage entry validated against the current peer; redesigned termination matcher; dual-write/rollback per jrife's N/N+1 plan) and drop the stale probing/`HAVE_SK_STORAGE` claims.
+
+## Final validation before requesting maintainer re-review
+
+```bash
+make -C bpf tests        # BPF unit tests incl. the new matcher cases
+make tests-privileged    # reconnect test now runs against the REAL regenerated object
+```
+
+The privileged reconnect test passing against the regenerated object is the end-to-end proof that the whole arc — F1 through B3 — ships.
