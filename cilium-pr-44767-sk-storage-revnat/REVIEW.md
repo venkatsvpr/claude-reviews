@@ -232,3 +232,53 @@ Knock-on work in the same commit: restore the `insert4`/`insert6`/`setup()` scaf
 4. Decide the story for netlink-fallback kernels whose sockets survive via sk_storage (F5) — the backend-tuple entry plus keeping the LRU write makes this tractable.
 5. Cleanups: shared v4/v6 helper + struct assignment (F6); bundle `registry.Cell` and drop the test shims (F7); split out whitespace churn (F8); comment the CO-RE stub and the 128-byte test padding; propagate errors from the registry map constructors.
 6. Process: sign off all commits, add the release-note blurb, and update the PR description to drop the nonexistent probing/`HAVE_SK_STORAGE` claims.
+
+---
+
+# Re-review — head `b9a85da` (2026-07-04)
+
+The branch was updated to address the findings above. **Verdict: right design decisions, but the change is only half-propagated — as pushed, the agent fails to load socket-LB at startup, and the new destroyer matcher is not in the shipped object.**
+
+## Properly fixed
+
+- **F1 — fixed via §6 Option A, done right.** New `ipv{4,6}_sk_storage_entry` carries `backend_address`/`backend_port`; `__sock4_xlate_rev` honors the entry only when `sk_val->backend_address == dst_ip && sk_val->backend_port == dst_port`, else falls back to the LRU lookup. Self-validating — covers disconnect and reconnect without lifecycle hooks.
+- **F4 — cleanly reverted.** Default back to `CTMapEntriesGlobalAnyDefault`, `min()` cap removed, honest TODO ("reduce once connected sockets rely solely on sk_storage"), `config_test.go` expectations reverted.
+- **F6 — fixed.** `*sk_val = sk_init` struct assignment; `bpf_alignchecker.c` updated with the new types.
+
+## New blockers
+
+### B1 · Go side still describes the old 8/20-byte value — socket-LB fails to load
+
+`pkg/datapath/maps/maps_generated.go` still has `ValueSize: 8, Value: "ipv4_revnat_entry"` for `cilium_lb4_reverse_sk_st` (20 for v6), `mapkv.btf` was not regenerated (`ipv4_sk_storage_entry` is absent from it), and `NewSockRevNat4StMap` still uses the 8-byte `SockRevNat4Value`. The agent creates and pins the st maps with the old value size; `bpf_sock.o`, compiled at runtime against the new 16/40-byte struct, fails the pinned-map compatibility check → socket-LB does not load.
+
+**Fix:** add Go value structs with the backend fields, update the lbmaps constructors, re-run the `pkg/datapath/maps` codegen (mapkv.btf + maps_generated.go).
+
+### B2 · sockterm objects not regenerated — and won't compile when they are
+
+`pkg/datapath/bpf/sockterm_bpf{el,eb}.{o,go}` are unchanged, so the shipped destroyer still runs the v1 address-only matcher; the new sk_storage matcher in `bpf_sock_term.c` is dead code (which is also why privileged tests still pass). On regeneration the compile fails: the code calls `bpf_sk_storage_get(...)`, but outside the test harness only `sk_storage_get` is declared (`bpf/include/bpf/helpers.h:126`); `bpf_sk_storage_get` exists only as the BPF-test mock. The declared prototype also takes `struct bpf_sock *` while the iterator supplies a kernel `struct sock *` — needs a cast or a tracing-flavored declaration.
+
+**Fix:** rename the calls, resolve the prototype, re-run the bpf2go generation for sockterm.
+
+### B3 · Matcher dropped the current-destination check — the reconnect bug returns
+
+The v2 matcher is "st backend == filter, else cookie-in-LRU-map." Neither branch consults what the socket is connected to *now* (the `sock_common` stub fields are now unused):
+
+- **Stale st entry:** connect(service→backend B), reconnect to plain address X. The st entry (backend B) survives — the F1 fix compares against the *packet peer* in xlate_rev, but here the entry is compared against the *filter*, so a sweep for B destroys the socket now talking to X.
+- **Cookie fallback:** sockets without an st entry (connected pre-upgrade, or sendmsg-only) hit the pure cookie lookup — exactly the pre-PR matcher, i.e. the original main-branch reconnect bug v1 fixed. Concretely: `TestPrivilegedSocketDestroyersReconnected` seeds only the LRU map, so once the sockterm object is regenerated, that test **fails** on the BPF destroyer path.
+
+**Fix:** the §7 combination — keep v1's `skc_daddr/skc_dport == filter` gate (with the `daddr == 0` allowance for unconnected sockets) **and** the managed check (st backend match or cookie-in-map). Each half guards a failure the other cannot.
+
+## Smaller leftovers
+
+- `bpf/node_config.h` still says `131072` while the restored Go default is 262144 — revert the node_config halving too.
+- The BPF unit test never exercises the cookie fallback with a seeded map entry (`setup()`/`insert4` still deleted) — the unconnected-UDP destroy path (F3) is implemented but untested; re-seed and assert the §7 four-case table.
+- `bpf_alignchecker.c` has the new C types but no matching Go structs are registered, so the align check does nothing for them yet — hook them up with the B1 structs.
+- Unchanged from the first review: F5 (much less material now that sizing is reverted), F7 (registry test shims), F8 (whitespace hunks), and process items (sign-offs, release-note label, PR description still promising probing/`HAVE_SK_STORAGE`).
+
+## Updated checklist
+
+1. **B1:** Go value structs + lbmaps constructors + `pkg/datapath/maps` codegen regen.
+2. **B2:** `bpf_sk_storage_get` → `sk_storage_get` (or tracing declaration), regenerate sockterm bpf2go artifacts.
+3. **B3:** reinstate the daddr/dport gate combined with the managed check; re-seed the BPF test; run `make tests-privileged` (expect `TestPrivilegedSocketDestroyersReconnected` to fail until B3 is fixed).
+4. Revert `node_config.h` map sizes; register align-checker Go structs.
+5. Carry-overs: F7, F8, sign-offs, release-note label, PR description.

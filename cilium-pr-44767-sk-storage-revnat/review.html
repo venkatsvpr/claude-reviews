@@ -454,5 +454,37 @@
     <li>Process: sign off all commits, add the release-note blurb, and update the PR description to drop the nonexistent probing/<code>HAVE_SK_STORAGE</code> claims.</li>
   </ol>
 
-  <p class="footer">Review of cilium/cilium PR #44767 (head <span class="mono">8f64a80</span>) · 8 finder angles, 8 verification passes (5 confirmed, 3 refuted) · includes triage of an external review's 11 comments.</p>
+  <h2 id="rereview"><span class="secno">9</span>Re-review — head <span class="mono">b9a85da</span></h2>
+  <p><strong>Verdict: right design decisions, half-propagated.</strong> As pushed, the agent fails to load socket-LB at startup and the new destroyer matcher is not in the shipped object.</p>
+
+  <h3>Properly fixed</h3>
+  <ul>
+    <li><strong>F1</strong> — fixed via §6 Option A, done right: <code>ipv{4,6}_sk_storage_entry</code> carries <code>backend_address/backend_port</code>, and <code>__sock4_xlate_rev</code> honors the entry only when the backend matches the current peer, else falls back to the LRU lookup.</li>
+    <li><strong>F4</strong> — cleanly reverted: default restored, <code>min()</code> cap removed, honest TODO, test expectations reverted.</li>
+    <li><strong>F6</strong> — struct assignment (<code>*sk_val = sk_init</code>); align-checker types added.</li>
+  </ul>
+
+  <h3>New blockers</h3>
+  <div class="finding">
+    <h3>B1 · Go side still describes the old 8/20-byte value <span class="chip chip-crit">Blocker</span></h3>
+    <p><code>maps_generated.go</code> still says <code>ValueSize: 8 / "ipv4_revnat_entry"</code> (20 for v6), <code>mapkv.btf</code> was not regenerated, and <code>NewSockRevNat4StMap</code> still uses the 8-byte <code>SockRevNat4Value</code>. The agent pins the st maps with the old value size; <code>bpf_sock.o</code> (16/40-byte struct) fails the pinned-map compatibility check → socket-LB does not load. Fix: Go value structs with backend fields, lbmaps constructors, <code>pkg/datapath/maps</code> codegen regen.</p>
+  </div>
+  <div class="finding">
+    <h3>B2 · sockterm artifacts not regenerated — and won't compile when they are <span class="chip chip-crit">Blocker</span></h3>
+    <p><code>sockterm_bpf{el,eb}.{o,go}</code> are unchanged, so the shipped destroyer still runs the v1 address-only matcher (the new matcher is dead code — why privileged tests still pass). On regen the compile fails: the code calls <code>bpf_sk_storage_get</code>, but only <code>sk_storage_get</code> is declared outside the test mocks (<code>helpers.h:126</code>), and the prototype takes <code>struct bpf_sock *</code> while the iterator supplies a kernel <code>struct sock *</code>. Fix: rename, resolve prototype, re-run bpf2go.</p>
+  </div>
+  <div class="finding">
+    <h3>B3 · Matcher dropped the current-destination gate — the reconnect bug returns <span class="chip chip-crit">Blocker</span></h3>
+    <p>The v2 matcher is "st backend == filter, else cookie-in-LRU-map"; neither branch consults the socket's <em>current</em> destination. A stale st entry after reconnect-to-non-service matches the filter and gets destroyed; the cookie fallback is exactly the pre-PR matcher, i.e. the original main-branch reconnect bug. <code>TestPrivilegedSocketDestroyersReconnected</code> seeds only the LRU map, so it <strong>fails</strong> on the BPF path once the object is regenerated. Fix: the §7 combination — <code>skc_daddr/skc_dport</code> gate (with <code>daddr == 0</code> allowance) <em>and</em> the managed check (st backend match or cookie-in-map).</p>
+  </div>
+
+  <h3>Smaller leftovers</h3>
+  <ul>
+    <li><code>node_config.h</code> still 131072 while the restored Go default is 262144 — revert it too.</li>
+    <li>The BPF test never exercises the cookie fallback with a seeded entry — the F3 path is implemented but untested; assert the §7 four-case table.</li>
+    <li>Align-checker C types have no registered Go counterparts yet — hook up with B1's structs.</li>
+    <li>Carry-overs: F5 (less material post-F4-revert), F7, F8, sign-offs, release-note label, PR description still promising probing/<code>HAVE_SK_STORAGE</code>.</li>
+  </ul>
+
+  <p class="footer">Review of cilium/cilium PR #44767 · v1 head <span class="mono">8f64a80</span> (8 finder angles, 8 verification passes: 5 confirmed, 3 refuted; external-review triage) · re-review head <span class="mono">b9a85da</span>.</p>
 </div>
