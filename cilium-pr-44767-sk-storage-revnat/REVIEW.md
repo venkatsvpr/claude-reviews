@@ -282,3 +282,48 @@ The v2 matcher is "st backend == filter, else cookie-in-LRU-map." Neither branch
 3. **B3:** reinstate the daddr/dport gate combined with the managed check; re-seed the BPF test; run `make tests-privileged` (expect `TestPrivilegedSocketDestroyersReconnected` to fail until B3 is fixed).
 4. Revert `node_config.h` map sizes; register align-checker Go structs.
 5. Carry-overs: F7, F8, sign-offs, release-note label, PR description.
+
+---
+
+# Re-review #2 — heads `e8d0f18` and `19c6b8d` (2026-07-04)
+
+**Verdict: the datapath logic is now right end-to-end — what remains is mechanical: the code generators were never run, so blockers B1 and B2 are still live on the branch.** Generated artifacts have been hand-edited to *look like* generator output across the last three pushes; CI's codegen-drift check will fail the branch until the generators are actually run.
+
+## Fixed in `e8d0f18`
+
+- **B3 — matcher gate restored, correctly.** Connected sockets (`skc_daddr != 0`) must match the filter's addr:port before any managed check; unconnected sockets fall through to the st/cookie checks. Case walk: LB'd-to-deleted-backend → destroyed; reconnected elsewhere → spared by the gate; direct connection → spared by the managed check; pre-upgrade socket without st entry → caught by the cookie fallback. Once the object is regenerated, `TestPrivilegedSocketDestroyersReconnected` should pass.
+- **B2 (compile half)** — `#define bpf_sk_storage_get sk_storage_get` resolves the symbol (`void *` → `struct bpf_sock *` converts implicitly).
+- **B1 (codec half)** — `SockRevNat4StValue`/`SockRevNat6StValue` (16/40 bytes, layouts match the C structs), lbmaps constructors updated, align-checker registrations added.
+
+## Fixed in `19c6b8d`
+
+- **BPF test seeding restored** and **Case 3** added (`no sk_storage + LRU match → destroy`, both families) — closes the F3 test gap for the cookie fallback.
+
+## Still open — verified on the current head
+
+### B1 · Registry still pins the old 8/20-byte map → socket-LB load failure
+
+`NewMapFromRegistry` (`pkg/bpf/map_linux.go:277`) builds the map from the **registry spec**, not from the new Go structs — and `pkg/datapath/maps/maps_generated.go:579` still reads `ValueSize: 8, Value: "ipv4_revnat_entry"` (20/`ipv6_revnat_entry` for v6). `mapkv.btf` contains **zero** occurrences of `sk_storage_entry`. The agent pins an 8/20-byte-valued map; `bpf_sock.o` (16/40) fails the pinned-map compatibility check at load. The new Go codec structs now also disagree with their own spec, so even userspace lookups would fail.
+
+### B2 · Shipped sockterm object is still the v1 matcher
+
+`sockterm_bpf{el,eb}.o` are byte-identical to the **first** push. Every `bpf_sock_term.c` improvement since (st check, cookie fallback, address gate) is dead code at runtime. The `SockTermIpv4SkStorageEntry` types in the generated `.go` files were added by hand — bpf2go derives them from the `.o`'s BTF and cannot produce types the object doesn't contain. (bpf2go writes per-target: when `bpf_sock_term.c` didn't compile due to `bpf_sk_storage_get`, only the Probes objects refreshed — which is why `probes_*.o` changed while `sockterm_*.o` didn't.)
+
+### The exact commands
+
+```bash
+# revert bpf/node_config.h LB{4,6}_REVERSE_NAT_SK_MAP_SIZE to 262144 first
+make -C bpf                                # build bpf_*.o with the new structs (dpgen reads these)
+go generate ./pkg/datapath/maps            # dpgen maps  → maps_generated.go + mapkv.btf
+go generate ./pkg/datapath/types           # dpgen types → types_generated.go
+go generate ./pkg/datapath/bpf             # bpf2go      → sockterm_bpf{el,eb}.{go,o} + probes
+```
+
+Commit whatever the generators produce. Then `make -C bpf tests` and `make tests-privileged` (the reconnect test against the freshly built object is the end-to-end confirmation that B3's fix ships).
+
+## Remaining test gaps / nits
+
+- **The address gate is never exercised**: `sk_pad = {}` leaves `skc_daddr` 0 in every case, so all tests run the unconnected path. Add: connected + mismatched destination + valid st → spared (the reconnect case); connected + matching destination + st match → destroyed.
+- **`if (st)` early-return** in `matches_v4/v6` skips the cookie fallback when the st entry exists but mismatches — an unconnected socket with a stale st entry plus a valid LRU entry for the deleted backend is wrongly spared. Make it `if (st && match) return true;` and fall through.
+- Two new align-checker entries aren't gofmt-aligned with the surrounding table.
+- Carried: F5 (low priority post-F4-revert), F7, F8, sign-offs, release-note label, PR description still promising kernel probing.

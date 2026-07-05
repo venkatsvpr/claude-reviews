@@ -486,5 +486,41 @@
     <li>Carry-overs: F5 (less material post-F4-revert), F7, F8, sign-offs, release-note label, PR description still promising probing/<code>HAVE_SK_STORAGE</code>.</li>
   </ul>
 
-  <p class="footer">Review of cilium/cilium PR #44767 · v1 head <span class="mono">8f64a80</span> (8 finder angles, 8 verification passes: 5 confirmed, 3 refuted; external-review triage) · re-review head <span class="mono">b9a85da</span>.</p>
+  <h2 id="rereview2"><span class="secno">10</span>Re-review #2 — heads <span class="mono">e8d0f18</span> / <span class="mono">19c6b8d</span></h2>
+  <p><strong>Verdict: the datapath logic is now right end-to-end; what remains is mechanical — the code generators were never run, so B1 and B2 are still live.</strong> Generated artifacts have been hand-edited to look like generator output; CI's codegen-drift check will fail until the generators actually run.</p>
+
+  <h3>Fixed</h3>
+  <ul>
+    <li><strong>B3</strong> — matcher gate restored correctly (<span class="mono">e8d0f18</span>): connected sockets must match the filter's addr:port before the managed check; unconnected fall through to st/cookie. All four cases in §7's table now behave correctly; the reconnect test should pass once the object is regenerated.</li>
+    <li><strong>B2 compile half</strong> — <code>#define bpf_sk_storage_get sk_storage_get</code> resolves the symbol.</li>
+    <li><strong>B1 codec half</strong> — <code>SockRevNat{4,6}StValue</code> (16/40 B, layouts match), lbmaps constructors, align-checker registrations.</li>
+    <li><strong>Test seeding + cookie-fallback case</strong> (<span class="mono">19c6b8d</span>) — closes the F3 test gap.</li>
+  </ul>
+
+  <h3>Still open (verified on the current head)</h3>
+  <div class="finding">
+    <h3>B1 · Registry still pins the old 8/20-byte map <span class="chip chip-crit">Blocker</span></h3>
+    <p><code>NewMapFromRegistry</code> builds from the <em>registry spec</em>, not the new Go structs — and <code>maps_generated.go:579</code> still reads <code>ValueSize: 8, Value: "ipv4_revnat_entry"</code>; <code>mapkv.btf</code> has zero occurrences of <code>sk_storage_entry</code>. The agent pins 8/20-byte maps; <code>bpf_sock.o</code> (16/40) fails the pinned-map check at load → socket-LB down. The new codec structs now also disagree with their own spec.</p>
+  </div>
+  <div class="finding">
+    <h3>B2 · Shipped sockterm object is still the v1 matcher <span class="chip chip-crit">Blocker</span></h3>
+    <p><code>sockterm_bpf{el,eb}.o</code> are byte-identical to the <em>first</em> push — every matcher improvement since is dead code at runtime. The <code>SockTermIpv4SkStorageEntry</code> types in the generated .go were hand-added; bpf2go derives them from the .o's BTF and can't produce types the object doesn't contain. (bpf2go writes per-target: while <code>bpf_sock_term.c</code> failed to compile, only Probes refreshed — hence <code>probes_*.o</code> changing without <code>sockterm_*.o</code>.)</p>
+  </div>
+
+  <h3>The exact commands</h3>
+  <pre><code># revert bpf/node_config.h LB{4,6}_REVERSE_NAT_SK_MAP_SIZE to 262144 first
+make -C bpf                        # build bpf_*.o (dpgen reads these)
+go generate ./pkg/datapath/maps    # dpgen maps  → maps_generated.go + mapkv.btf
+go generate ./pkg/datapath/types   # dpgen types → types_generated.go
+go generate ./pkg/datapath/bpf     # bpf2go → sockterm_bpf{el,eb}.{go,o} + probes</code></pre>
+  <p>Commit whatever the generators produce, then <code>make -C bpf tests</code> and <code>make tests-privileged</code>.</p>
+
+  <h3>Remaining test gaps / nits</h3>
+  <ul>
+    <li>The address gate is never exercised (<code>skc_daddr</code> stays 0 in every case) — add connected+mismatch→spared and connected+match+st→destroyed cases.</li>
+    <li><code>if (st)</code> early-return skips the cookie fallback on a mismatched st entry — make it <code>if (st &amp;&amp; match) return true;</code> and fall through.</li>
+    <li>Align-checker entries not gofmt-aligned; carried: F5, F7, F8, sign-offs, release-note label, PR description still promising kernel probing.</li>
+  </ul>
+
+  <p class="footer">Review of cilium/cilium PR #44767 · v1 head <span class="mono">8f64a80</span> (8 finder angles, 8 verification passes: 5 confirmed, 3 refuted; external-review triage) · re-reviews: <span class="mono">b9a85da</span>, <span class="mono">e8d0f18</span>, <span class="mono">19c6b8d</span>.</p>
 </div>
